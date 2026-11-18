@@ -46,6 +46,10 @@ public final class AutoTest {
         }
         place(minecraft, minecraft.player);
         int ticks = minecraft.gui.getGuiTicks();
+        if (ticks % 20 == 0) {
+            DiegesisMod.LOGGER.warn("AUTOTEST fps {} at tick {}, station {}", minecraft.getFps(), ticks,
+                    FocusController.get().isActive());
+        }
         if (ticks < 100 || ticks % 100 != 0) {
             return;
         }

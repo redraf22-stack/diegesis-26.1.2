@@ -8,6 +8,7 @@ import net.minecraft.client.renderer.rendertype.RenderType;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * A frame of a scene's geometry, kept until the game draws it. Since 26.1 the level is built from render states and drawn from
@@ -29,21 +30,34 @@ public final class SceneSubmit implements MultiBufferSource {
      */
     private static final PoseStack EMPTY = new PoseStack();
 
-    private final Map<RenderType, Vertices> batches = new LinkedHashMap<>();
+    /**
+     * What is being drawn, in the order it must be laid over the frame: batched by render type alone, a page turning over another
+     * one comes out in pieces — all the paper first, then every well and every icon of both sheets, so the one underneath showed
+     * through the one on top. A layer is one sheet: its own things, drawn before the next layer's.
+     */
+    private final Map<Integer, Map<RenderType, Vertices>> batches = new TreeMap<>();
+    private static int layer;
+
+    /** Draw what follows on {@code layer} (0 by default, sheets over it). */
+    public static void layer(int on) {
+        layer = on;
+    }
 
     /** Empties it for a new frame. */
     public void clear() {
         batches.clear();
+        layer = 0;
     }
 
     @Override
     public VertexConsumer getBuffer(RenderType type) {
-        return batches.computeIfAbsent(type, t -> new Vertices()).consumer;
+        return batches.computeIfAbsent(layer, l -> new LinkedHashMap<>())
+                .computeIfAbsent(type, t -> new Vertices()).consumer;
     }
 
     /**
      * Hands everything drawn this frame to the frame's batches, to be drawn at {@code order} (earlier orders first: opaque
-     * things before see-through ones, the scene before what lies over it).
+     * things before see-through ones, the scene before what lies over it; a layer over the one before it).
      */
     public void submit(SubmitNodeCollector collector, int order) {
         if (batches.isEmpty()) {
@@ -51,16 +65,20 @@ public final class SceneSubmit implements MultiBufferSource {
         }
         int total = 0;
         StringBuilder types = new StringBuilder();
-        for (Map.Entry<RenderType, Vertices> entry : batches.entrySet()) {
-            Vertices vertices = entry.getValue();
-            vertices.endVertex();
-            if (vertices.count == 0) {
-                continue;
+        for (Map.Entry<Integer, Map<RenderType, Vertices>> layer : batches.entrySet()) {
+            for (Map.Entry<RenderType, Vertices> entry : layer.getValue().entrySet()) {
+                Vertices vertices = entry.getValue();
+                vertices.endVertex();
+                if (vertices.count == 0) {
+                    continue;
+                }
+                total += vertices.count * 4;
+                types.append(' ').append(entry.getKey()).append('=').append(vertices.count);
+                int at = order + layer.getKey();
+                collector.order(at).submitCustomGeometry(EMPTY, entry.getKey(), (pose, consumer) -> vertices.draw(consumer));
             }
-            total += vertices.count * 4;
-            types.append(' ').append(entry.getKey()).append('=').append(vertices.count);
-            collector.order(order).submitCustomGeometry(EMPTY, entry.getKey(), (pose, consumer) -> vertices.draw(consumer));
         }
+        layer = 0;
         if (DIAG && total > 0) {
             long now = System.nanoTime();
             if (now - lastDiag > 5_000_000_000L) {

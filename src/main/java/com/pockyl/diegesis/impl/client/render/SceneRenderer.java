@@ -162,6 +162,7 @@ public final class SceneRenderer {
      */
     public static void render(PoseStack poseStack, Matrix4f modelView, Matrix4f projection, Camera camera,
             SubmitNodeCollector collector) {
+        long started = Util.getNanos();
         SCENE.clear();
         COUNTS.clear();
         try {
@@ -169,8 +170,34 @@ public final class SceneRenderer {
         } finally {
             // After every station's frame: the blocks their scenes now stand in for are left out of the next frame's chunks.
             ClientStations.get().syncHiddenBlocks();
+            diagFrame(Util.getNanos() - started);
         }
     }
+
+    /** How long the scenes take to put their geometry together each frame ({@code -Ddiegesis.diag} while looking at speed). */
+    private static void diagFrame(long nanos) {
+        if (!DIAG) {
+            return;
+        }
+        diagFrames++;
+        diagSpent += nanos;
+        long now = System.nanoTime();
+        if (diagSince == 0L) {
+            diagSince = now;
+        }
+        if (now - diagSince >= 5_000_000_000L) {
+            double each = diagSpent / 1.0e6 / Math.max(1, diagFrames);
+            DiegesisMod.LOGGER.warn("DIAG scene {} ms/frame over {} frames", String.format("%.2f", each), diagFrames);
+            diagSince = now;
+            diagFrames = 0;
+            diagSpent = 0L;
+        }
+    }
+
+    private static final boolean DIAG = Boolean.getBoolean("diegesis.diag");
+    private static int diagFrames;
+    private static long diagSpent;
+    private static long diagSince;
 
     private static void renderStations(PoseStack poseStack, Matrix4f modelView, Matrix4f projection, Camera camera,
             SubmitNodeCollector collector) {
